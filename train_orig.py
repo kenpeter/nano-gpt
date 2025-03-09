@@ -20,6 +20,8 @@ import os
 import time
 import math
 import pickle
+import signal
+import sys
 from contextlib import nullcontext
 
 import numpy as np
@@ -152,7 +154,7 @@ if init_from == 'scratch':
 elif init_from == 'resume':
     print(f"Resuming training from {out_dir}")
     ckpt_path = os.path.join(out_dir, 'ckpt.pt')
-    checkpoint = torch.load(ckpt_path, map_location=device)
+    checkpoint = torch.load(ckpt_path, map_location=device, weights_only=False)  # Explicitly allow full checkpoint
     checkpoint_model_args = checkpoint['model_args']
     for k in ['n_layer', 'n_head', 'n_embd', 'block_size', 'bias', 'vocab_size']:
         model_args[k] = checkpoint_model_args[k]
@@ -223,6 +225,36 @@ def get_lr(it):
     coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
     return min_lr + coeff * (learning_rate - min_lr)
 
+# Checkpoint saving function
+def save_checkpoint():
+    if master_process:
+        checkpoint = {
+            'model': raw_model.state_dict(),
+            'optimizer': optimizer.state_dict(),
+            'model_args': model_args,
+            'iter_num': iter_num,
+            'best_val_loss': best_val_loss,
+            'config': config,
+        }
+        temp_path = os.path.join(out_dir, 'ckpt_temp.pt')
+        final_path = os.path.join(out_dir, 'ckpt.pt')
+        print(f"Saving checkpoint to {temp_path} at iteration {iter_num}")
+        torch.save(checkpoint, temp_path)
+        time.sleep(1)  # Ensure write completes
+        os.replace(temp_path, final_path)
+        print(f"Checkpoint saved to {final_path}")
+
+# Signal handler for Ctrl+C
+def signal_handler(sig, frame):
+    print(f"\nReceived interrupt signal. Saving checkpoint before exiting...")
+    save_checkpoint()
+    if ddp:
+        destroy_process_group()
+    sys.exit(0)
+
+# Register signal handler
+signal.signal(signal.SIGINT, signal_handler)
+
 # logging
 if wandb_log and master_process:
     import wandb
@@ -253,16 +285,8 @@ while True:
         if losses['val'] < best_val_loss or always_save_checkpoint:
             best_val_loss = losses['val']
             if iter_num > 0:
-                checkpoint = {
-                    'model': raw_model.state_dict(),
-                    'optimizer': optimizer.state_dict(),
-                    'model_args': model_args,
-                    'iter_num': iter_num,
-                    'best_val_loss': best_val_loss,
-                    'config': config,
-                }
-                print(f"saving checkpoint to {out_dir}")
-                torch.save(checkpoint, os.path.join(out_dir, 'ckpt.pt'))
+                save_checkpoint()
+
     if iter_num == 0 and eval_only:
         break
 
@@ -296,5 +320,7 @@ while True:
     if iter_num > max_iters:
         break
 
+# Save final checkpoint if training completes normally
+save_checkpoint()
 if ddp:
     destroy_process_group()
