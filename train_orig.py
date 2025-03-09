@@ -45,8 +45,8 @@ wandb_project = 'owt'
 wandb_run_name = 'gpt2'
 # data
 dataset = 'openwebtext'
-gradient_accumulation_steps = 40
-batch_size = 12
+gradient_accumulation_steps = 40  # Suits RTX 4070's 12 GB VRAM
+batch_size = 12  # Can increase if memory allows
 block_size = 1024
 # model
 n_layer = 12
@@ -64,14 +64,14 @@ grad_clip = 1.0
 # learning rate decay settings
 decay_lr = True
 warmup_iters = 2000
-lr_decay_iters = 18000
+lr_decay_iters = 18000  # Match max_iters
 min_lr = 6e-5
 # DDP settings
 backend = 'nccl'
 # system
 device = 'cuda'
 dtype = 'bfloat16' if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else 'float16'
-compile = True  # Compilation enabled by default
+compile = True  # Enabled for CUDA
 # -----------------------------------------------------------------------------
 config_keys = [k for k, v in globals().items() if not k.startswith('_') and isinstance(v, (int, float, bool, str))]
 exec(open('configurator.py').read())  # Overrides from command line or config file
@@ -95,7 +95,7 @@ else:
     master_process = True
     seed_offset = 0
     ddp_world_size = 1
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'  # CUDA priority
 print(f"Using device: {device}")
 
 tokens_per_iter = gradient_accumulation_steps * ddp_world_size * batch_size * block_size
@@ -106,7 +106,7 @@ if master_process:
 torch.manual_seed(1337 + seed_offset)
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
-device_type = 'cuda' if 'cuda' in device else 'cpu'
+device_type = 'cuda' if 'cuda' in device else 'cpu'  # MPS removed
 ptdtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[dtype]
 ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=ptdtype)
 
@@ -178,7 +178,7 @@ if block_size < model.config.block_size:
 model.to(device)
 
 # initialize a GradScaler
-scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))
+scaler = torch.cuda.amp.GradScaler(enabled=(dtype == 'float16'))  # CUDA-specific
 
 # optimizer
 optimizer = model.configure_optimizers(weight_decay, learning_rate, (beta1, beta2), device_type)
@@ -190,7 +190,7 @@ checkpoint = None
 if compile:
     print("compiling the model... (takes a ~minute)")
     unoptimized_model = model
-    model = torch.compile(model)  # Compilation enabled
+    model = torch.compile(model)
 
 # wrap model into DDP container
 if ddp:
