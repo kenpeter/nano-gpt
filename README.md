@@ -225,3 +225,16 @@ For more questions/discussions feel free to stop by **#nanoGPT** on Discord:
 ## acknowledgements
 
 All nanoGPT experiments are powered by GPUs on [Lambda labs](https://lambdalabs.com), my favorite Cloud GPU provider. Thank you Lambda labs for sponsoring nanoGPT!
+
+
+
+
+
+
+python train_orig.py --batch_size=8 --gradient_accumulation_steps=40 --learning_rate=3e-4 --weight_decay=1e-2 --init_from=resume --compile=True
+
+
+
+
+
+python train_orig.py --batch_size=8 --init_from=resume --compile=True
